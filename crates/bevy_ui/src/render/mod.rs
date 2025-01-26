@@ -225,6 +225,7 @@ pub enum ExtractedUiItem {
         border: BorderRect,
         node_type: NodeType,
         transform: Mat4,
+        use_anti_alias: bool,
     },
     /// A contiguous sequence of text glyphs from the same section
     Glyphs {
@@ -289,13 +290,22 @@ pub fn extract_uinode_background_colors(
             Option<&CalculatedClip>,
             Option<&UiTargetCamera>,
             &BackgroundColor,
+            Option<&BorderColor>,
         )>,
     >,
     mapping: Extract<Query<RenderEntity>>,
 ) {
     let default_camera_entity = default_ui_camera.get();
-    for (entity, uinode, transform, inherited_visibility, clip, camera, background_color) in
-        &uinode_query
+    for (
+        entity,
+        uinode,
+        transform,
+        inherited_visibility,
+        clip,
+        camera,
+        background_color,
+        border_color,
+    ) in &uinode_query
     {
         let Some(camera_entity) = camera.map(UiTargetCamera::entity).or(default_camera_entity)
         else {
@@ -334,6 +344,7 @@ pub fn extract_uinode_background_colors(
                     border: uinode.border(),
                     border_radius: uinode.border_radius(),
                     node_type: NodeType::Rect,
+                    use_anti_alias: border_color.is_none() || uinode.border == BorderRect::ZERO,
                 },
                 main_entity: entity.into(),
             },
@@ -355,12 +366,15 @@ pub fn extract_uinode_images(
             Option<&CalculatedClip>,
             Option<&UiTargetCamera>,
             &ImageNode,
+            Option<&BorderColor>,
         )>,
     >,
     mapping: Extract<Query<RenderEntity>>,
 ) {
     let default_camera_entity = default_ui_camera.get();
-    for (entity, uinode, transform, inherited_visibility, clip, camera, image) in &uinode_query {
+    for (entity, uinode, transform, inherited_visibility, clip, camera, image, border_color) in
+        &uinode_query
+    {
         let Some(camera_entity) = camera.map(UiTargetCamera::entity).or(default_camera_entity)
         else {
             continue;
@@ -426,6 +440,7 @@ pub fn extract_uinode_images(
                     border: uinode.border,
                     border_radius: uinode.border_radius,
                     node_type: NodeType::Rect,
+                    use_anti_alias: border_color.is_none() || uinode.border == BorderRect::ZERO,
                 },
                 main_entity: entity.into(),
             },
@@ -504,6 +519,7 @@ pub fn extract_uinode_borders(
                             border: computed_node.border(),
                             border_radius: computed_node.border_radius(),
                             node_type: NodeType::Border,
+                            use_anti_alias: true,
                         },
                         main_entity: entity.into(),
                     },
@@ -538,6 +554,7 @@ pub fn extract_uinode_borders(
                         border: BorderRect::all(computed_node.outline_width()),
                         border_radius: computed_node.outline_radius(),
                         node_type: NodeType::Border,
+                        use_anti_alias: true,
                     },
                     main_entity: entity.into(),
                 },
@@ -846,6 +863,7 @@ pub mod shader_flags {
     /// Ordering: top left, top right, bottom right, bottom left.
     pub const CORNERS: [u32; 4] = [0, 2, 2 | 4, 4];
     pub const BORDER: u32 = 8;
+    pub const USE_ANTI_ALIAS: u32 = 16;
 }
 
 pub fn queue_uinodes(
@@ -1026,6 +1044,7 @@ pub fn prepare_uinodes(
                             border,
                             node_type,
                             transform,
+                            use_anti_alias,
                         } => {
                             let mut flags = if extracted_uinode.image != AssetId::default() {
                                 shader_flags::TEXTURED
@@ -1147,6 +1166,10 @@ pub fn prepare_uinodes(
                             let color = extracted_uinode.color.to_f32_array();
                             if *node_type == NodeType::Border {
                                 flags |= shader_flags::BORDER;
+                            }
+
+                            if *use_anti_alias {
+                                flags |= shader_flags::USE_ANTI_ALIAS;
                             }
 
                             for i in 0..4 {
